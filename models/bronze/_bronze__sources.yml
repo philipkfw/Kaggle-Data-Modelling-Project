@@ -1,0 +1,26 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: Raw Kaggle CSVs loaded by snowflake/01_setup_bronze.sql.
+    database: KAGGLE_DB
+    schema: BRONZE
+    tables:
+      - name: accounts
+        identifier: ACCOUNTS
+        description: One row per account, with sign-up time and platform.
+      - name: accounts_geo
+        identifier: ACCOUNTS_GEO
+        description: Account location (country, city, region).
+      - name: account_lifecycle_events
+        identifier: ACCOUNT_LIFECYCLE_EVENTS
+        description: Account state changes (trial, subscribed, churned).
+      - name: invoices
+        identifier: INVOICES
+        description: One row per invoice issued to an account.
+      - name: invoice_line_items
+        identifier: INVOICE_LINE_ITEMS
+        description: Line items making up each invoice.
+      - name: payment_transactions
+        identifier: PAYMENT_TRANSACTIONS
+        description: Payments made against invoices.

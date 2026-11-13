@@ -1,0 +1,27 @@
+name: 'kaggle_dwh'
+version: '1.0.0'
+config-version: 2
+
+profile: 'kaggle_dwh'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  kaggle_dwh:
+    # Bronze tables are loaded by snowflake/01_setup_bronze.sql and declared
+    # as dbt sources in models/bronze/ - dbt does not build them.
+    silver:
+      +schema: silver
+      +materialized: view
+    gold:
+      +schema: gold
+      +materialized: table
