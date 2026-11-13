@@ -79,6 +79,113 @@ Bronze design notes:
 
 ---
 
+## Bronze Layer ERD
+
+```mermaid
+erDiagram
+    ACCOUNTS ||--|| ACCOUNTS_GEO : "1:1 | id = account_id"
+    ACCOUNTS ||--|{ ACCOUNT_LIFECYCLE_EVENTS : "1:M | id = account_id"
+    ACCOUNTS ||--|{ INVOICES : "1:M | id = account_id"
+    ACCOUNTS ||--o{ PAYMENT_TRANSACTIONS : "1:M | id = account_id"
+    INVOICES ||--|{ INVOICE_LINE_ITEMS : "1:M | invoice_id = invoice_id"
+    INVOICES ||--o| PAYMENT_TRANSACTIONS : "1:1 | invoice_id = invoice_id"
+
+    ACCOUNTS {
+        varchar id PK
+        timestamp_ntz sign_up_time
+        varchar sign_up_platform
+    }
+    ACCOUNTS_GEO {
+        varchar account_id PK, FK "-> ACCOUNTS.id"
+        varchar country
+        varchar city
+        varchar region
+    }
+    ACCOUNT_LIFECYCLE_EVENTS {
+        varchar account_id PK, FK "composite PK, -> ACCOUNTS.id"
+        timestamp_ntz event_time PK "composite PK"
+        varchar lifecycle_state
+    }
+    INVOICES {
+        varchar invoice_id PK
+        varchar account_id FK "-> ACCOUNTS.id"
+        timestamp_ntz invoice_created_time
+        timestamp_ntz invoice_sent_time
+        number amount
+        varchar currency
+    }
+    INVOICE_LINE_ITEMS {
+        varchar id PK
+        varchar invoice_id FK "-> INVOICES.invoice_id"
+        varchar service_type
+        number amount
+    }
+    PAYMENT_TRANSACTIONS {
+        varchar transaction_id PK
+        varchar invoice_id FK, UK "-> INVOICES.invoice_id"
+        varchar account_id FK "-> ACCOUNTS.id"
+        timestamp_ntz transaction_time
+        varchar payment_method
+        number amount
+        varchar currency
+    }
+```
+
+Every bronze table also carries the `_SOURCE_FILE` and `_LOADED_AT` audit columns, which are omitted from the diagram.
+
+### Legend
+
+Each line is labelled `<cardinality> | <parent column> = <child column>`. The parent is the table on the "one" side of the relationship.
+
+| Label | Meaning | Used in this layer |
+|---|---|---|
+| **1:1** | One-to-one: each parent row matches at most one child row | `ACCOUNTS` → `ACCOUNTS_GEO`, `INVOICES` → `PAYMENT_TRANSACTIONS` |
+| **1:M** | One-to-many: each parent row can match many child rows | All other relationships |
+| **M:M** | Many-to-many: rows on both sides can match many rows on the other | None |
+
+Line-end symbols (crow's foot notation):
+
+| Symbol | Meaning |
+|---|---|
+| `\|\|` (two bars) | Exactly one |
+| `o\|` (circle + bar) | Zero or one (optional) |
+| `\|{` (bar + crow's foot) | One or many |
+| `o{` (circle + crow's foot) | Zero or many (optional) |
+
+For example, the line `INVOICES ||--o| PAYMENT_TRANSACTIONS` reads: every payment belongs to exactly one invoice, and an invoice has zero or one payment.
+
+### Keys
+
+| Table | Primary key | Foreign keys |
+|---|---|---|
+| `ACCOUNTS` | `id` | — |
+| `ACCOUNTS_GEO` | `account_id` | `account_id` → `ACCOUNTS.id` |
+| `ACCOUNT_LIFECYCLE_EVENTS` | (`account_id`, `event_time`) | `account_id` → `ACCOUNTS.id` |
+| `INVOICES` | `invoice_id` | `account_id` → `ACCOUNTS.id` |
+| `INVOICE_LINE_ITEMS` | `id` | `invoice_id` → `INVOICES.invoice_id` |
+| `PAYMENT_TRANSACTIONS` | `transaction_id` | `invoice_id` → `INVOICES.invoice_id` (also unique)<br>`account_id` → `ACCOUNTS.id` |
+
+### Relationships
+
+| Join | Cardinality | Observed in data |
+|---|---|---|
+| `ACCOUNTS.id` = `ACCOUNTS_GEO.account_id` | 1:1 (mandatory both sides) | Every account has exactly 1 geo row |
+| `ACCOUNTS.id` = `ACCOUNT_LIFECYCLE_EVENTS.account_id` | 1:M (1..n) | 1–3 events per account; each state appears at most once per account |
+| `ACCOUNTS.id` = `INVOICES.account_id` | 1:M (1..n) | 1–5 invoices per account; every account has at least one |
+| `ACCOUNTS.id` = `PAYMENT_TRANSACTIONS.account_id` | 1:M (0..n) | 16 accounts have no payments |
+| `INVOICES.invoice_id` = `INVOICE_LINE_ITEMS.invoice_id` | 1:M (1..n) | 1–5 line items per invoice; line items sum exactly to the invoice amount |
+| `INVOICES.invoice_id` = `PAYMENT_TRANSACTIONS.invoice_id` | 1:1 (0..1 on the payment side) | 435 invoices paid with a single full payment; 174 unpaid |
+
+There are no many-to-many relationships.
+
+### Notes
+- **Keys are logical, not enforced.** Snowflake doesn't enforce primary or foreign key constraints on standard tables. The keys above were validated by profiling the data and will be enforced with dbt tests (`unique`, `not_null`, `relationships`).
+- **Payments store `account_id` redundantly.** `PAYMENT_TRANSACTIONS.account_id` can also be derived through `INVOICES`. The two always agree in the data, so silver can drop one path or test that they match.
+- **Lifecycle events have no surrogate key.** The natural key (`account_id`, `event_time`) is unique; (`account_id`, `lifecycle_state`) is unique too.
+- **Account ID naming is inconsistent.** It's `id` in `ACCOUNTS` but `account_id` everywhere else. Worth standardising in silver.
+
+---
+
 ## dbt Setup
 
 ### 1. Install dbt-core
