@@ -1,0 +1,160 @@
+version: 2
+
+models:
+  - name: dim_accounts
+    description: >
+      Grain: one row per account, with current attributes as of the reporting end
+      date. The segmentation dimension (country, region, city, sign-up platform) for
+      every fact and mart. Lifecycle milestone columns support account-level trial
+      conversion analysis. Historical lifecycle state is NOT stored here; see
+      fct_account_lifecycle and fct_account_daily_status.
+    columns:
+      - name: account_id
+        description: Account identifier. Primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: sign_up_at_mt
+        description: Sign-up timestamp, Mountain Time.
+        data_tests:
+          - not_null
+      - name: sign_up_date_mt
+        description: Sign-up date, Mountain Time.
+        data_tests:
+          - not_null
+      - name: sign_up_platform
+        description: Platform the account signed up on.
+        data_tests:
+          - not_null
+      - name: country
+        description: Country as recorded in the source ('Unknown' if geography is missing).
+        data_tests:
+          - not_null
+      - name: country_code
+        description: ISO-3166 alpha-2 country code.
+        data_tests:
+          - not_null
+      - name: region
+        description: Region (territory-style; not strictly nested with city).
+        data_tests:
+          - not_null
+      - name: city
+        description: City.
+        data_tests:
+          - not_null
+      - name: has_geography
+        description: FALSE if the account had no geography record.
+      - name: current_lifecycle_stage
+        description: Lifecycle stage as of the reporting end date. pre_trial = signed up but no trial event yet.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['pre_trial', 'trial', 'subscribed', 'churned']
+      - name: current_stage_started_at_mt
+        description: When the account entered its current stage (sign-up time for pre_trial).
+      - name: trial_started_at_mt
+        description: Trial start timestamp, Mountain Time.
+      - name: trial_started_date_mt
+        description: Trial start date, Mountain Time. Defines the trial conversion cohort.
+      - name: subscribed_at_mt
+        description: Subscription timestamp, Mountain Time. NULL if never subscribed.
+      - name: subscribed_date_mt
+        description: Subscription date, Mountain Time.
+      - name: churned_at_mt
+        description: Churn timestamp, Mountain Time. NULL if never churned.
+      - name: churned_date_mt
+        description: Churn date, Mountain Time.
+      - name: days_sign_up_to_trial
+        description: Days from sign-up to trial start.
+      - name: days_trial_to_subscribed
+        description: Days from trial start to subscription.
+      - name: days_subscribed_to_churned
+        description: Days from subscription to churn.
+      - name: has_converted
+        description: TRUE if the account ever moved from trial to subscribed.
+      - name: has_converted_within_window
+        description: TRUE if the account subscribed within trial_conversion_window_days (90) of trial start.
+      - name: is_stale_trial
+        description: >
+          Data quality flag. TRUE if the account is still in trial more than
+          stale_trial_days (90) after trial start. The source has no trial-expiry
+          event, so these accounts are reported as trial, exactly as recorded.
+      - name: lifecycle_event_count
+        description: Number of lifecycle events recorded for the account.
+
+  - name: dim_date
+    description: >
+      Grain: one row per calendar date (Mountain Time) from reporting_start_date to
+      reporting_end_date. Date spine for point-in-time snapshots and a standard
+      calendar dimension for BI.
+    columns:
+      - name: date_day
+        description: Calendar date. Primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: day_of_week_iso
+        description: ISO day of week (1 = Monday, 7 = Sunday).
+      - name: day_name
+        description: Abbreviated day name.
+      - name: is_weekend
+        description: TRUE on Saturday and Sunday.
+      - name: week_start_date
+        description: Monday of the ISO week.
+      - name: month_start_date
+        description: First day of the month.
+      - name: month_end_date
+        description: Last calendar day of the month.
+      - name: month_reporting_end_date
+        description: Last date with data in the month (the reporting end date for a partial final month).
+      - name: month_name
+        description: Abbreviated month name.
+      - name: year_month
+        description: YYYY-MM label.
+      - name: quarter_start_date
+        description: First day of the quarter.
+      - name: quarter_number
+        description: Quarter of the year (1-4).
+      - name: year_number
+        description: Calendar year.
+      - name: is_month_end
+        description: TRUE on the last calendar day of the month.
+
+  - name: dim_fx_rates
+    description: >
+      Grain: one row per calendar date per currency. The exact rates applied to
+      every invoice and payment, so any USD amount can be audited back to its rate.
+      Convention: 1 unit of from_currency = exchange_rate USD.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: ['rate_date', 'from_currency']
+    columns:
+      - name: fx_rate_id
+        description: Surrogate key = hash(rate_date, from_currency).
+        data_tests:
+          - unique
+          - not_null
+      - name: rate_date
+        description: Calendar date the rate applies to.
+      - name: from_currency
+        description: Original currency (ISO-4217).
+      - name: to_currency
+        description: Always USD.
+      - name: exchange_rate
+        description: USD value of 1 unit of from_currency.
+        data_tests:
+          - not_null
+      - name: rate_effective_date
+        description: Publication date of the applied rate (latest on or before rate_date).
+      - name: days_since_published
+        description: Days the applied rate has been carried forward (weekends and holidays).
+      - name: source_series_id
+        description: FRED series identifier (NULL for USD).
+      - name: rate_source
+        description: Federal Reserve H.10 via FRED, or identity for USD.
+      - name: rate_type
+        description: Rate methodology.
+      - name: loaded_at
+        description: Date the rates were retrieved.

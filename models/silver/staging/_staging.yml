@@ -1,0 +1,308 @@
+version: 2
+
+models:
+  - name: stg_accounts
+    description: >
+      Grain: one row per account. Standardised copy of BRONZE.ACCOUNTS.
+      Renames id to account_id, keeps the original (assumed UTC) sign-up timestamp
+      and adds its Mountain Time equivalent.
+    columns:
+      - name: account_id
+        description: Account identifier (renamed from source column id).
+        data_tests:
+          - unique
+          - not_null
+      - name: sign_up_at_utc
+        description: Original sign-up timestamp from the source (timezone-naive, assumed UTC).
+        data_tests:
+          - not_null
+      - name: sign_up_at_mt
+        description: Sign-up timestamp converted to Mountain Time (America/Denver).
+        data_tests:
+          - not_null
+      - name: sign_up_date_mt
+        description: Sign-up calendar date in Mountain Time.
+      - name: sign_up_platform
+        description: Platform the account signed up on (lowercased).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['mobile-android', 'mobile-ios', 'mobile-ipad', 'web-browser']
+      - name: source_file
+        description: Staged CSV file the row was loaded from.
+      - name: loaded_at
+        description: Timestamp the row was loaded into Bronze.
+
+  - name: stg_accounts_geo
+    description: >
+      Grain: one row per account. Standardised copy of BRONZE.ACCOUNTS_GEO with
+      ISO country code and the account's expected local currency added from the
+      country_reference seed. Source country names are kept unchanged.
+    columns:
+      - name: account_id
+        description: Account identifier.
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_accounts')
+                field: account_id
+      - name: country
+        description: Country exactly as recorded in the source.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['United States', 'Canada', 'UK', 'Australia']
+      - name: country_code
+        description: ISO-3166 alpha-2 country code. NULL here means the country is missing from country_reference.
+        data_tests:
+          - not_null
+      - name: country_currency_code
+        description: Local currency expected for the account's country.
+      - name: region
+        description: >
+          Sales-territory-style region. Not strictly nested within city or vice versa
+          (e.g. Leeds appears in England-Central and England-North).
+        data_tests:
+          - not_null
+      - name: city
+        description: Account city.
+        data_tests:
+          - not_null
+      - name: source_file
+        description: Staged CSV file the row was loaded from.
+      - name: loaded_at
+        description: Timestamp the row was loaded into Bronze.
+
+  - name: stg_account_lifecycle_events
+    description: >
+      Grain: one row per account lifecycle event. Adds a surrogate key derived
+      from (account_id, event_time), because the source has no event identifier.
+    columns:
+      - name: lifecycle_event_id
+        description: Surrogate key = hash(account_id, event_time).
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        description: Account the event belongs to.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_accounts')
+                field: account_id
+      - name: lifecycle_state
+        description: State the account entered (lowercased).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['trial', 'subscribed', 'churned']
+      - name: event_at_utc
+        description: Original event timestamp (assumed UTC).
+        data_tests:
+          - not_null
+      - name: event_at_mt
+        description: Event timestamp in Mountain Time.
+      - name: event_date_mt
+        description: Event calendar date in Mountain Time.
+      - name: source_file
+        description: Staged CSV file the row was loaded from.
+      - name: loaded_at
+        description: Timestamp the row was loaded into Bronze.
+
+  - name: stg_invoices
+    description: >
+      Grain: one row per invoice. Original amount and currency preserved;
+      timestamps provided in both source (UTC) and Mountain Time.
+    columns:
+      - name: invoice_id
+        description: Invoice identifier.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        description: Account that issued the invoice.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_accounts')
+                field: account_id
+      - name: invoice_created_at_utc
+        description: Original invoice creation timestamp (assumed UTC).
+        data_tests:
+          - not_null
+      - name: invoice_created_at_mt
+        description: Invoice creation timestamp in Mountain Time.
+      - name: invoice_created_date_mt
+        description: Invoice creation date in Mountain Time.
+      - name: invoice_sent_at_utc
+        description: Original invoice sent timestamp (assumed UTC).
+        data_tests:
+          - not_null
+      - name: invoice_sent_at_mt
+        description: Invoice sent timestamp in Mountain Time.
+      - name: invoice_sent_date_mt
+        description: Invoice sent date in Mountain Time.
+      - name: invoice_amount
+        description: Invoice amount in the original currency (major units).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: currency_code
+        description: ISO-4217 currency of the invoice.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['USD', 'CAD', 'GBP', 'AUD']
+      - name: source_file
+        description: Staged CSV file the row was loaded from.
+      - name: loaded_at
+        description: Timestamp the row was loaded into Bronze.
+
+  - name: stg_invoice_line_items
+    description: Grain - one row per invoice line item. Line items inherit their invoice's currency.
+    columns:
+      - name: invoice_line_item_id
+        description: Line item identifier (renamed from source column id).
+        data_tests:
+          - unique
+          - not_null
+      - name: invoice_id
+        description: Parent invoice.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_invoices')
+                field: invoice_id
+      - name: service_type
+        description: Type of service billed (lowercased).
+        data_tests:
+          - not_null
+      - name: line_item_amount
+        description: Line item amount in the parent invoice's currency (major units).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: source_file
+        description: Staged CSV file the row was loaded from.
+      - name: loaded_at
+        description: Timestamp the row was loaded into Bronze.
+
+  - name: stg_payment_transactions
+    description: >
+      Grain: one row per payment transaction. The source has no status, refund
+      or reversal fields, so every transaction is treated as a completed payment.
+    columns:
+      - name: transaction_id
+        description: Payment transaction identifier.
+        data_tests:
+          - unique
+          - not_null
+      - name: invoice_id
+        description: Invoice the payment was made against.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_invoices')
+                field: invoice_id
+      - name: account_id
+        description: Account that received the payment.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_accounts')
+                field: account_id
+      - name: transaction_at_utc
+        description: Original payment timestamp (assumed UTC).
+        data_tests:
+          - not_null
+      - name: transaction_at_mt
+        description: Payment timestamp in Mountain Time.
+      - name: transaction_date_mt
+        description: Payment date in Mountain Time.
+      - name: payment_method
+        description: Payment method as recorded in the source.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['ACH', 'Cash', 'Cheque', 'Credit Card', 'Paypal']
+      - name: payment_amount
+        description: Payment amount in the original currency (major units).
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: currency_code
+        description: ISO-4217 currency of the payment.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['USD', 'CAD', 'GBP', 'AUD']
+      - name: source_file
+        description: Staged CSV file the row was loaded from.
+      - name: loaded_at
+        description: Timestamp the row was loaded into Bronze.
+
+  - name: stg_fx_rates
+    description: >
+      Grain: one row per published rate date per currency. FRED H.10 series
+      normalised to the convention "1 unit of from_currency = exchange_rate USD"
+      (DEXCAUS is inverted; DEXUSUK and DEXUSAL are used as published), plus USD
+      identity rows at 1.0. Only dates with a published rate appear here.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: ['rate_date', 'from_currency']
+    columns:
+      - name: rate_date
+        description: Date the rate was published for.
+        data_tests:
+          - not_null
+      - name: from_currency
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['USD', 'CAD', 'GBP', 'AUD']
+      - name: to_currency
+        description: Always USD.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['USD']
+      - name: exchange_rate
+        description: USD value of 1 unit of from_currency.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: source_series_id
+        description: FRED series the rate came from (NULL for USD identity rows).
+      - name: rate_source
+        description: Provider of the rate.
+      - name: rate_type
+        description: Rate methodology (daily noon buying rate, or identity).
+      - name: loaded_at
+        description: Date the source series was retrieved from FRED.

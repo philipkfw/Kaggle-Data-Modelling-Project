@@ -1,0 +1,53 @@
+version: 2
+
+seeds:
+  - name: fx_rates_fred_h10
+    description: >
+      Daily foreign exchange rates from the Federal Reserve H.10 release
+      (noon buying rates in New York), downloaded from FRED (St. Louis Fed)
+      on retrieved_date. Public domain. Values are stored exactly as published;
+      US holidays with no published value are omitted (never imputed).
+      Series: DEXCAUS = CAD per 1 USD, DEXUSUK = USD per 1 GBP, DEXUSAL = USD per 1 AUD.
+      Normalisation to "1 unit of currency = X USD" happens in stg_fx_rates.
+    columns:
+      - name: rate_date
+        description: Business date the rate was published for.
+        data_tests:
+          - not_null
+      - name: series_id
+        description: FRED series identifier.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['DEXCAUS', 'DEXUSUK', 'DEXUSAL']
+      - name: observed_value
+        description: Rate exactly as published, in the series' own quote convention.
+        data_tests:
+          - not_null
+      - name: retrieved_date
+        description: Date the series was downloaded from FRED.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: ['rate_date', 'series_id']
+
+  - name: country_reference
+    description: >
+      Static mapping of source country names to ISO-3166 alpha-2 codes and
+      the local currency expected for accounts in that country.
+    columns:
+      - name: source_country_name
+        description: Country name exactly as it appears in ACCOUNTS_GEO.
+        data_tests:
+          - unique
+          - not_null
+      - name: country_code
+        description: ISO-3166 alpha-2 country code.
+        data_tests:
+          - unique
+          - not_null
+      - name: currency_code
+        description: ISO-4217 local currency code for the country.
+        data_tests:
+          - not_null

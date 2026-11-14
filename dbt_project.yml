@@ -15,13 +15,51 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
+vars:
+  # Source NTZ timestamps carry no zone; assumed UTC (see docs). Change here only.
+  source_timezone: 'UTC'
+  reporting_timezone: 'America/Denver'
+  # Reporting window (Mountain Time dates). End date = latest timestamp in any source.
+  reporting_start_date: '2024-01-01'
+  reporting_end_date: '2025-08-12'
+  # Business rules
+  stale_trial_days: 90
+  trial_conversion_window_days: 90
+  max_fx_staleness_days: 4
+
+seeds:
+  kaggle_dwh:
+    +schema: silver
+    +tags: ['seed', 'fx']
+    fx_rates_fred_h10:
+      +column_types:
+        rate_date: DATE
+        series_id: VARCHAR
+        observed_value: NUMBER(18, 6)
+        retrieved_date: DATE
+    country_reference:
+      +column_types:
+        source_country_name: VARCHAR
+        country_code: VARCHAR
+        currency_code: VARCHAR
+
 models:
   kaggle_dwh:
-    # Bronze tables are loaded by snowflake/01_setup_bronze.sql and declared
-    # as dbt sources in models/bronze/ - dbt does not build them.
+    # Bronze tables are loaded by snowflake/01_setup_bronze.sql and declared as
+    # dbt sources in models/silver/staging/_sources.yml - dbt never builds them.
     silver:
       +schema: silver
       +materialized: view
+      staging:
+        +tags: ['silver', 'staging']
+      intermediate:
+        +tags: ['silver', 'intermediate']
     gold:
       +schema: gold
       +materialized: table
+      dimensions:
+        +tags: ['gold', 'dimension']
+      facts:
+        +tags: ['gold', 'fact']
+      reporting:
+        +tags: ['gold', 'reporting']

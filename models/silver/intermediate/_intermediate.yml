@@ -1,0 +1,239 @@
+version: 2
+
+models:
+  - name: int_fx_rates_daily
+    description: >
+      Grain: one row per calendar date per currency across the reporting window.
+      Each date takes the most recent rate published on or before it (ASOF JOIN),
+      so weekends and holidays reuse the prior business day's rate and no future
+      rate is ever applied. The only place FX as-of logic lives.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: ['rate_date', 'from_currency']
+    columns:
+      - name: rate_date
+        description: Calendar date the rate applies to.
+        data_tests:
+          - not_null
+      - name: from_currency
+        description: Original currency (ISO-4217).
+        data_tests:
+          - not_null
+      - name: to_currency
+        description: Always USD.
+      - name: exchange_rate
+        description: USD value of 1 unit of from_currency, effective on rate_date.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                inclusive: false
+      - name: rate_effective_date
+        description: Publication date of the rate applied (on or before rate_date).
+        data_tests:
+          - not_null
+      - name: days_since_published
+        description: Days between rate_date and rate_effective_date. 0 on business days.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: "{{ var('max_fx_staleness_days') }}"
+      - name: source_series_id
+        description: FRED series identifier (NULL for USD).
+      - name: rate_source
+        description: Federal Reserve H.10 via FRED, or identity for USD.
+      - name: rate_type
+        description: Rate methodology.
+      - name: loaded_at
+        description: Date the rates were retrieved.
+
+  - name: int_accounts_enriched
+    description: >
+      Grain: one row per account. Accounts LEFT JOIN geography; any missing
+      geography is labelled 'Unknown' explicitly instead of dropping the account.
+    columns:
+      - name: account_id
+        description: Account identifier.
+        data_tests:
+          - unique
+          - not_null
+      - name: sign_up_at_utc
+        description: Original sign-up timestamp (assumed UTC).
+      - name: sign_up_at_mt
+        description: Sign-up timestamp in Mountain Time.
+      - name: sign_up_date_mt
+        description: Sign-up date in Mountain Time.
+      - name: sign_up_platform
+        description: Sign-up platform ('Unknown' if missing).
+      - name: country
+        description: Country as recorded in the source ('Unknown' if no geography).
+      - name: country_code
+        description: ISO-3166 alpha-2 country code ('Unknown' if no geography).
+      - name: country_currency_code
+        description: Local currency expected for the account's country.
+      - name: region
+        description: Region ('Unknown' if no geography).
+      - name: city
+        description: City ('Unknown' if no geography).
+      - name: has_geography
+        description: FALSE when the account had no ACCOUNTS_GEO row.
+
+  - name: int_account_lifecycle
+    description: >
+      Grain: one row per account lifecycle event. Sequences events chronologically,
+      adds previous and next states, and turns each event into an effective-dated
+      interval [valid_from, valid_to). The current state is the open interval
+      (valid_to IS NULL). History is never overwritten.
+    columns:
+      - name: lifecycle_event_id
+        description: Surrogate key = hash(account_id, event_time).
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        description: Account the event belongs to.
+      - name: event_sequence
+        description: 1-based chronological order of the event within the account (tie-break by state rank).
+        data_tests:
+          - not_null
+      - name: lifecycle_state
+        description: State the account entered at this event.
+      - name: previous_lifecycle_state
+        description: State before this event (NULL for the first event).
+      - name: next_lifecycle_state
+        description: State after this interval ends (NULL if current).
+      - name: event_at_utc
+        description: Event timestamp (assumed UTC).
+      - name: event_at_mt
+        description: Event timestamp in Mountain Time.
+      - name: event_date_mt
+        description: Event date in Mountain Time.
+      - name: valid_from_utc
+        description: Interval start (UTC). Used for point-in-time joins because UTC is strictly ordered.
+        data_tests:
+          - not_null
+      - name: valid_to_utc
+        description: Interval end, exclusive (UTC). NULL for the current interval.
+      - name: valid_from_mt
+        description: Interval start in Mountain Time.
+      - name: valid_to_mt
+        description: Interval end (exclusive) in Mountain Time. NULL for the current interval.
+      - name: is_current
+        description: TRUE for the account's latest lifecycle event.
+      - name: is_valid_transition
+        description: FALSE if the transition is not (start)->trial, trial->subscribed or subscribed->churned.
+      - name: days_in_state
+        description: Days spent in the state (to the reporting end date if current).
+
+  - name: int_invoices
+    description: >
+      Grain: one row per invoice. Line items and payments are aggregated to invoice
+      grain before joining (no fanout). Adds historical USD conversion at the invoice
+      created date (MT), line item reconciliation, payment status and the account's
+      lifecycle stage when the invoice was created.
+    columns:
+      - name: invoice_id
+        description: Invoice identifier.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        description: Account that issued the invoice.
+      - name: invoice_created_at_utc
+        description: Original creation timestamp (assumed UTC).
+      - name: invoice_created_at_mt
+        description: Creation timestamp in Mountain Time.
+      - name: invoice_created_date_mt
+        description: Creation date in Mountain Time. FX conversion date.
+      - name: invoice_sent_at_utc
+        description: Original sent timestamp (assumed UTC).
+      - name: invoice_sent_at_mt
+        description: Sent timestamp in Mountain Time.
+      - name: invoice_sent_date_mt
+        description: Sent date in Mountain Time.
+      - name: invoice_amount
+        description: Invoice amount in the original currency.
+      - name: currency_code
+        description: Original invoice currency.
+      - name: exchange_rate
+        description: USD per 1 unit of currency_code on invoice_created_date_mt.
+        data_tests:
+          - not_null
+      - name: fx_rate_effective_date
+        description: Publication date of the applied rate.
+      - name: fx_rate_source
+        description: Provider of the applied rate.
+      - name: invoice_amount_usd
+        description: invoice_amount x exchange_rate. Unrounded.
+        data_tests:
+          - not_null
+      - name: line_item_count
+        description: Number of line items on the invoice.
+      - name: line_item_amount_total
+        description: Sum of line item amounts (original currency).
+      - name: distinct_service_type_count
+        description: Number of distinct service types on the invoice.
+      - name: is_amount_reconciled
+        description: TRUE when invoice_amount equals line_item_amount_total.
+      - name: payment_count
+        description: Number of payments recorded against the invoice.
+      - name: is_paid
+        description: TRUE if at least one payment exists.
+      - name: lifecycle_stage_at_invoice
+        description: The account's lifecycle stage when the invoice was created (pre_trial if before any event).
+      - name: is_post_churn_activity
+        description: TRUE if the invoice was created after the account churned.
+
+  - name: int_payment_transactions
+    description: >
+      Grain: one row per payment transaction. Adds historical USD conversion at the
+      transaction date (MT), payment channel classification and the account's
+      lifecycle stage when the payment was made.
+    columns:
+      - name: transaction_id
+        description: Payment transaction identifier.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        description: Account that received the payment.
+      - name: invoice_id
+        description: Invoice the payment was made against.
+      - name: transaction_at_utc
+        description: Original payment timestamp (assumed UTC).
+      - name: transaction_at_mt
+        description: Payment timestamp in Mountain Time.
+      - name: transaction_date_mt
+        description: Payment date in Mountain Time. FX conversion date.
+      - name: payment_method
+        description: Payment method as recorded in the source.
+      - name: payment_channel
+        description: electronic (Credit Card, ACH, Paypal) or offline (Cash, Cheque).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['electronic', 'offline']
+      - name: payment_amount
+        description: Payment amount in the original currency.
+      - name: currency_code
+        description: Original payment currency.
+      - name: exchange_rate
+        description: USD per 1 unit of currency_code on transaction_date_mt.
+        data_tests:
+          - not_null
+      - name: fx_rate_effective_date
+        description: Publication date of the applied rate.
+      - name: fx_rate_source
+        description: Provider of the applied rate.
+      - name: amount_usd
+        description: payment_amount x exchange_rate. Unrounded.
+        data_tests:
+          - not_null
+      - name: lifecycle_stage_at_payment
+        description: The account's lifecycle stage when the payment was made (pre_trial if before any event).
+      - name: is_post_churn_activity
+        description: TRUE if the payment occurred after the account churned.

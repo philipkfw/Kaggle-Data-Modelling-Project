@@ -1,0 +1,151 @@
+version: 2
+
+models:
+  - name: mart_financial_performance
+    description: >
+      Grain: one row per reporting date (MT) x country x region x city x sign-up
+      platform, for combinations with any payment or invoice activity (sparse).
+      Payments and invoices are aggregated independently, then combined on identical
+      keys. GPV is dated by transaction date; invoice metrics by invoice created date.
+      All measures are fully additive across every dimension and across dates.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: ['reporting_date', 'country', 'region', 'city', 'sign_up_platform']
+    columns:
+      - name: reporting_date
+        description: Activity date, Mountain Time.
+        data_tests:
+          - not_null
+      - name: country
+        description: Account country.
+      - name: country_code
+        description: ISO-3166 alpha-2 country code.
+      - name: region
+        description: Account region.
+      - name: city
+        description: Account city.
+      - name: sign_up_platform
+        description: Account sign-up platform.
+      - name: gpv_usd
+        description: Gross Payment Volume in USD (all payment methods), converted at transaction-date FX rates.
+      - name: gpv_electronic_usd
+        description: GPV from electronic payments (Credit Card, ACH, Paypal).
+      - name: gpv_offline_usd
+        description: GPV from offline payments (Cash, Cheque).
+      - name: payment_count
+        description: Number of payment transactions.
+      - name: invoice_count
+        description: Invoice Volume - number of distinct invoices created.
+      - name: invoice_amount_usd
+        description: Invoice Dollar Volume in USD, converted at invoice-created-date FX rates.
+
+  - name: mart_account_lifecycle
+    description: >
+      Grain: one row per reporting date (MT) x country x region x city x sign-up
+      platform, dense from each segment's first sign-up. STOCKS (*_accounts) are
+      point-in-time counts at end of day: they can be summed across segments but
+      must NEVER be summed across dates; use the last date of the period.
+      FLOWS (new_*) count events on the date and are fully additive.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: ['reporting_date', 'country', 'region', 'city', 'sign_up_platform']
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "pre_trial_accounts + trial_accounts + subscribed_accounts + churned_accounts = total_accounts"
+    columns:
+      - name: reporting_date
+        description: Snapshot date (end of day, Mountain Time).
+        data_tests:
+          - not_null
+      - name: country
+        description: Account country.
+      - name: country_code
+        description: ISO-3166 alpha-2 country code.
+      - name: region
+        description: Account region.
+      - name: city
+        description: Account city.
+      - name: sign_up_platform
+        description: Account sign-up platform.
+      - name: pre_trial_accounts
+        description: STOCK. Accounts signed up but with no trial event yet, at end of day.
+      - name: trial_accounts
+        description: STOCK. Accounts in trial at end of day.
+      - name: subscribed_accounts
+        description: STOCK. Accounts subscribed at end of day.
+      - name: churned_accounts
+        description: STOCK. Accounts churned at end of day (cumulative; churn is a terminal state).
+      - name: total_accounts
+        description: STOCK. All accounts signed up by end of day (sum of the four stages).
+      - name: new_sign_ups
+        description: FLOW. Accounts that signed up on the date.
+      - name: new_trials
+        description: FLOW. Accounts that started a trial on the date.
+      - name: new_subscriptions
+        description: FLOW. Accounts that subscribed on the date.
+      - name: new_churns
+        description: FLOW. Accounts that churned on the date.
+
+  - name: mart_account_performance
+    description: >
+      Grain: one row per month x country x region x city x sign-up platform.
+      Executive view combining lifecycle and financial metrics, each rolled up to
+      this grain independently before joining. Stocks (*_eom) are as of the
+      month's last reporting date and must not be summed across months. Flows and
+      financials are monthly totals. Trial conversion is analysed at account level
+      from dim_accounts (trial_started_date_mt, has_converted_within_window).
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: ['month_start_date', 'country', 'region', 'city', 'sign_up_platform']
+    columns:
+      - name: month_start_date
+        description: First day of the reporting month.
+        data_tests:
+          - not_null
+      - name: month_reporting_end_date
+        description: Last date with data in the month (stocks are measured on this date).
+      - name: is_partial_month
+        description: TRUE if the month extends past the reporting end date.
+      - name: country
+        description: Account country.
+      - name: country_code
+        description: ISO-3166 alpha-2 country code.
+      - name: region
+        description: Account region.
+      - name: city
+        description: Account city.
+      - name: sign_up_platform
+        description: Account sign-up platform.
+      - name: pre_trial_accounts_eom
+        description: STOCK. Pre-trial accounts at month end.
+      - name: trial_accounts_eom
+        description: STOCK. Trial accounts at month end.
+      - name: subscribed_accounts_eom
+        description: STOCK. Subscribed accounts at month end.
+      - name: churned_accounts_eom
+        description: STOCK. Churned accounts at month end (cumulative).
+      - name: total_accounts_eom
+        description: STOCK. All signed-up accounts at month end.
+      - name: new_sign_ups
+        description: FLOW. Sign-ups during the month.
+      - name: new_trials
+        description: FLOW. Trials started during the month.
+      - name: new_subscriptions
+        description: FLOW. Subscriptions during the month.
+      - name: new_churns
+        description: FLOW. Churns during the month.
+      - name: gpv_usd
+        description: Gross Payment Volume (USD) during the month.
+      - name: gpv_electronic_usd
+        description: Electronic GPV (USD) during the month.
+      - name: gpv_offline_usd
+        description: Offline (cash, cheque) GPV (USD) during the month.
+      - name: payment_count
+        description: Payments during the month.
+      - name: invoice_count
+        description: Invoice Volume during the month.
+      - name: invoice_amount_usd
+        description: Invoice Dollar Volume (USD) during the month.

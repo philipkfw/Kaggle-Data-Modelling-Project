@@ -1,0 +1,76 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: >
+      Raw Kaggle CSVs loaded as-is by snowflake/01_setup_bronze.sql.
+      dbt reads these tables but never creates, modifies or drops them.
+      Every table carries _SOURCE_FILE and _LOADED_AT audit columns.
+    database: KAGGLE_DB
+    schema: BRONZE
+    tables:
+      - name: accounts
+        identifier: ACCOUNTS
+        description: One row per Jobber account.
+        columns:
+          - name: id
+            description: Account identifier (UUID).
+            data_tests:
+              - unique
+              - not_null
+
+      - name: accounts_geo
+        identifier: ACCOUNTS_GEO
+        description: Account location. Expected one row per account.
+        columns:
+          - name: account_id
+            data_tests:
+              - unique
+              - not_null
+              - relationships:
+                  arguments:
+                    to: source('bronze', 'accounts')
+                    field: id
+
+      - name: account_lifecycle_events
+        identifier: ACCOUNT_LIFECYCLE_EVENTS
+        description: One row per account lifecycle state change (trial, subscribed, churned).
+        data_tests:
+          - dbt_utils.unique_combination_of_columns:
+              arguments:
+                combination_of_columns: ['account_id', 'event_time']
+        columns:
+          - name: account_id
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: source('bronze', 'accounts')
+                    field: id
+
+      - name: invoices
+        identifier: INVOICES
+        description: One row per invoice an account sends to its clients.
+        columns:
+          - name: invoice_id
+            data_tests:
+              - unique
+              - not_null
+
+      - name: invoice_line_items
+        identifier: INVOICE_LINE_ITEMS
+        description: One row per invoice line item.
+        columns:
+          - name: id
+            data_tests:
+              - unique
+              - not_null
+
+      - name: payment_transactions
+        identifier: PAYMENT_TRANSACTIONS
+        description: One row per payment made against an invoice.
+        columns:
+          - name: transaction_id
+            data_tests:
+              - unique
+              - not_null
