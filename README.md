@@ -1,30 +1,111 @@
-# Kaggle-Data-Modelling-Project
-Intended to showcase my data modelling skills with dbt-core in Snowflake!
+# Jobber Analytics Warehouse – Snowflake + dbt Core
 
-The project follows a medallion architecture in a single Snowflake database (`KAGGLE_DB`):
+A Bronze → Silver → Gold warehouse built on six Jobber CSV extracts. It delivers three BI-ready business metrics:
 
-| Schema | Purpose |
+| Metric | Definition | Model |
+|---|---|---|
+| **Gross Payment Volume (GPV)** | `SUM(amount_usd)` of payment transactions, converted at historical FX rates | `fct_payment_transactions` |
+| **Invoice Volume** | `COUNT(DISTINCT invoice_id)`, plus Invoice Dollar Volume in USD | `fct_invoices` |
+| **Accounts by lifecycle stage** | Point-in-time counts of Trial, Subscribed and Churned accounts on any date | `fct_account_daily_status` |
+
+- **Segmentation:** every metric can be split by **country, region, city and sign-up platform**.
+- **Standardisation:** all dates are in **Mountain Time** (`America/Denver`) and all money is in **USD**.
+
+**Stack:** Snowflake · dbt Core 1.12 · dbt_utils · 22 models · 2 seeds · 176 tests
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A[(BRONZE<br/>6 raw CSV tables)] --> B[SILVER · staging<br/>clean, type, rename,<br/>UTC → Mountain Time]
+    S[(seeds<br/>Fed H.10 FX rates,<br/>country reference)] --> B
+    B --> C[SILVER · intermediate<br/>FX as-of rates, USD conversion,<br/>lifecycle intervals, enrichment]
+    C --> D[GOLD · dims & facts<br/>dim_accounts, dim_date, dim_fx_rates<br/>fct_invoices, fct_payment_transactions,<br/>fct_account_lifecycle, fct_account_daily_status]
+    D --> E[GOLD · reporting marts<br/>mart_financial_performance<br/>mart_account_lifecycle<br/>mart_account_performance]
+    E --> T{{Tableau / BI}}
+```
+
+| Layer | Schema | Materialisation | Purpose |
+|---|---|---|---|
+| Bronze | `BRONZE` | Tables (loaded by SQL script) | Raw CSVs, untouched by dbt |
+| Silver | `SILVER` | Views | Standardisation, timezone and currency conversion, reusable logic |
+| Gold | `GOLD` | Tables | Star schema and reporting marts for BI |
+
+## Documentation
+
+| Document | Contents |
 |---|---|
-| `BRONZE` | Raw data, loaded as-is from the source CSVs |
-| `SILVER` | Cleaned, typed and conformed models (dbt) |
-| `GOLD` | Business-ready marts (dbt) |
+| [docs/architecture.md](docs/architecture.md) | Layers, full DAG, star schema, **why / grain / logic for every model**, fanout controls |
+| [docs/methodology.md](docs/methodology.md) | Currency conversion, timezone conversion, historical lifecycle tracking |
+| [docs/metrics.md](docs/metrics.md) | Metric definitions, rate calculations, mart grains, additivity rules |
+| [docs/data_quality.md](docs/data_quality.md) | Testing approach, data quality findings, business assumptions, limitations |
+| [docs/data_dictionary.md](docs/data_dictionary.md) | Every column of every model, with types (generated from dbt) |
+| [docs/bi_connection.md](docs/bi_connection.md) | Connecting Tableau, which table to use, calculations |
+| [docs/phase_1_2_discovery_and_design.md](docs/phase_1_2_discovery_and_design.md) | Original discovery findings and the approved design proposal |
 
-## Repository Structure
+Interactive DAG and model docs: `dbt docs generate && dbt docs serve`.
+
+## Quick start
+
+Prerequisites: Bronze loaded ([Snowflake Setup](#snowflake-setup)) and dbt configured ([dbt Setup](#dbt-setup)).
+
+```bash
+source .venv/bin/activate
+dbt deps                       # install dbt_utils
+dbt build                      # seeds + models + tests → DEV_SILVER / DEV_GOLD
+dbt build --target prod        # same, into SILVER / GOLD
+dbt docs generate --target prod && dbt docs serve
+python scripts/generate_data_dictionary.py   # refresh docs/data_dictionary.md
+```
+
+A successful build reports `PASS=198 WARN=2 ERROR=0`. The two warnings are intentional data-quality reports: 61 stale trials and 27 post-churn records (see [data_quality.md](docs/data_quality.md)).
+
+**Useful selectors:**
+- `dbt build --select tag:reporting` builds the marts only.
+- `dbt build --select +mart_account_lifecycle` builds a mart plus everything upstream of it.
+- `dbt test --select test_type:singular` runs the reconciliation tests.
+
+## Repository structure
 
 ```
 .
-├── static_csv_files/              # Source CSVs (Kaggle dataset)
-├── snowflake/
-│   └── 01_setup_bronze.sql        # Warehouse, database, schemas, stage + bronze load
-├── dbt_project.yml                # dbt project config (silver = views, gold = tables)
+├── static_csv_files/                  # Source CSVs
+├── snowflake/01_setup_bronze.sql      # Warehouse, database, schemas, stage + Bronze load
+├── dbt_project.yml                    # Schema routing, materialisations, tags, project variables
+├── packages.yml / package-lock.yml    # dbt_utils
+├── requirements.txt                   # Pinned dbt-core + dbt-snowflake
+├── seeds/
+│   ├── fx_rates_fred_h10.csv          # Federal Reserve H.10 daily FX rates (public domain)
+│   └── country_reference.csv          # Country → ISO code → local currency
 ├── macros/
-│   └── generate_schema_name.sql   # Build models into SILVER / GOLD exactly
+│   ├── generate_schema_name.sql       # dev → DEV_SILVER/DEV_GOLD, prod → SILVER/GOLD
+│   └── to_mountain_time.sql           # The single timezone conversion rule
 ├── models/
-│   ├── bronze/_bronze__sources.yml  # Bronze tables declared as dbt sources
 │   ├── silver/
+│   │   ├── staging/                   # _sources.yml, _staging.yml, 7 stg_* models
+│   │   └── intermediate/              # 5 int_* models
 │   └── gold/
-└── requirements.txt               # Pinned dbt-core + dbt-snowflake versions
+│       ├── dimensions/                # dim_accounts, dim_date, dim_fx_rates
+│       ├── facts/                     # fct_invoices, fct_payment_transactions,
+│       │                              # fct_account_lifecycle, fct_account_daily_status
+│       └── reporting/                 # 3 mart_* models
+├── tests/                             # 14 singular tests: financial/, lifecycle/, reporting/, data_quality/
+├── analyses/source_profiling.sql      # Phase 1 profiling queries
+├── scripts/generate_data_dictionary.py
+└── docs/                              # See Documentation above
 ```
+
+## Key design decisions
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Source timezone | Assumed **UTC**, converted to `America/Denver` via one macro | NTZ timestamps carry no zone and the data shows no local-time pattern; DST handled by IANA rules; configurable |
+| FX source | **Federal Reserve H.10** (FRED) as a seed; as-of rate on or before each date | Direct USD pairs, public domain, reproducible; no future or fabricated rates |
+| Lifecycle history | **Effective-dated intervals** + a **daily account snapshot** | Exact history; point-in-time counts become simple filters; no double counting |
+| Marts | Aggregate each fact separately, then join on a key union | No fanout; every mart reconciles to source in tests |
+| Data quality | **Flag, never drop** (`is_post_churn_activity`, `is_stale_trial`, `is_paid`) | Totals always reconcile; anomalies stay visible |
 
 ---
 
@@ -179,10 +260,10 @@ For example, the line `INVOICES ||--o| PAYMENT_TRANSACTIONS` reads: every paymen
 There are no many-to-many relationships.
 
 ### Notes
-- **Keys are logical, not enforced.** Snowflake doesn't enforce primary or foreign key constraints on standard tables. The keys above were validated by profiling the data and will be enforced with dbt tests (`unique`, `not_null`, `relationships`).
-- **Payments store `account_id` redundantly.** `PAYMENT_TRANSACTIONS.account_id` can also be derived through `INVOICES`. The two always agree in the data, so silver can drop one path or test that they match.
-- **Lifecycle events have no surrogate key.** The natural key (`account_id`, `event_time`) is unique; (`account_id`, `lifecycle_state`) is unique too.
-- **Account ID naming is inconsistent.** It's `id` in `ACCOUNTS` but `account_id` everywhere else. Worth standardising in silver.
+- **Keys are logical, not enforced.** Snowflake doesn't enforce primary or foreign key constraints on standard tables. The keys above were validated by profiling and are enforced by dbt tests (`unique`, `not_null`, `relationships`) on the sources and every downstream layer.
+- **Payments store `account_id` redundantly.** `PAYMENT_TRANSACTIONS.account_id` can also be derived through `INVOICES`. The two always agree; `assert_payment_account_matches_invoice_account` tests this on every build.
+- **Lifecycle events have no surrogate key.** The natural key (`account_id`, `event_time`) is unique; silver derives `lifecycle_event_id = hash(account_id, event_time)`.
+- **Account ID naming is inconsistent.** It's `id` in `ACCOUNTS` but `account_id` everywhere else; silver standardises it to `account_id`.
 
 ---
 
@@ -194,6 +275,7 @@ From the repo root, create a virtual environment and install the pinned versions
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+dbt deps
 dbt --version
 ```
 
@@ -214,12 +296,12 @@ dbt opens many connections per run, so password + MFA would prompt on every one.
    ```
 
 ### 3. Configure the dbt profile
-Create `~/.dbt/profiles.yml` (it lives outside the repo, so credentials are never committed):
+Create `~/.dbt/profiles.yml`. It lives outside the repo, so credentials are never committed. It needs two targets:
 ```yaml
 kaggle_dwh:
   target: dev
   outputs:
-    dev:
+    dev:                               # dbt build                → DEV_SILVER / DEV_GOLD
       type: snowflake
       account: <ORGNAME-ACCOUNTNAME>
       user: <your_username>
@@ -227,9 +309,20 @@ kaggle_dwh:
       role: SYSADMIN
       warehouse: COMPUTE_WH
       database: KAGGLE_DB
-      schema: SILVER
+      schema: DEV
+      threads: 4
+    prod:                              # dbt build --target prod  → SILVER / GOLD
+      type: snowflake
+      account: <ORGNAME-ACCOUNTNAME>
+      user: <your_username>
+      private_key_path: /Users/<you>/.snowflake/keys/rsa_key.p8
+      role: SYSADMIN
+      warehouse: COMPUTE_WH
+      database: KAGGLE_DB
+      schema: PROD
       threads: 4
 ```
+`macros/generate_schema_name.sql` routes models: the `prod` target writes to exactly `SILVER` / `GOLD`, and any other target writes to `DEV_SILVER` / `DEV_GOLD`.
 
 ### 4. Verify the connection
 ```bash
@@ -237,8 +330,14 @@ dbt debug
 ```
 You should see `All checks passed!`.
 
-### Project conventions
-- **Bronze** tables are loaded by `snowflake/01_setup_bronze.sql`, not dbt. They're declared as sources in `models/bronze/_bronze__sources.yml` and referenced with `{{ source('bronze', '<table>') }}`.
-- **Silver** models (`models/silver/`) build as **views** in `KAGGLE_DB.SILVER`.
-- **Gold** models (`models/gold/`) build as **tables** in `KAGGLE_DB.GOLD`.
-- `macros/generate_schema_name.sql` overrides dbt's default `<target>_<custom>` schema naming so models land in `SILVER` / `GOLD` exactly.
+### Project variables
+Business rules live in `dbt_project.yml` under `vars`, so changing an assumption is a one-line change:
+
+| Variable | Value | Meaning |
+|---|---|---|
+| `source_timezone` | `UTC` | Assumed zone of source timestamps |
+| `reporting_timezone` | `America/Denver` | Reporting zone |
+| `reporting_start_date` / `reporting_end_date` | `2024-01-01` / `2025-08-12` | Date spine and as-of date |
+| `stale_trial_days` | `90` | Threshold for `is_stale_trial` |
+| `trial_conversion_window_days` | `90` | Window for `has_converted_within_window` |
+| `max_fx_staleness_days` | `4` | Longest allowed FX carry-forward |

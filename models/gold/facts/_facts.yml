@@ -1,0 +1,230 @@
+version: 2
+
+models:
+  - name: fct_invoices
+    description: >
+      Grain: one row per invoice. Authoritative source for Invoice Volume
+      (COUNT DISTINCT invoice_id) and Invoice Dollar Volume (SUM invoice_amount_usd),
+      both dated by invoice_created_date_mt. Join to dim_accounts on account_id for
+      segmentation. Never join directly to fct_payment_transactions.
+    columns:
+      - name: invoice_id
+        description: Invoice identifier. Primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        description: Account that issued the invoice.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_accounts')
+                field: account_id
+      - name: invoice_created_at_mt
+        description: Invoice creation timestamp, Mountain Time.
+      - name: invoice_created_date_mt
+        description: Invoice creation date, Mountain Time. Reporting date for invoice metrics and the FX conversion date.
+        data_tests:
+          - not_null
+      - name: invoice_sent_at_mt
+        description: Invoice sent timestamp, Mountain Time.
+      - name: invoice_sent_date_mt
+        description: Invoice sent date, Mountain Time.
+      - name: invoice_amount
+        description: Invoice amount in the original currency (major units).
+      - name: currency_code
+        description: Original invoice currency (ISO-4217).
+      - name: exchange_rate
+        description: USD per 1 unit of currency_code, applied for invoice_created_date_mt.
+      - name: fx_rate_effective_date
+        description: Publication date of the applied FX rate.
+      - name: fx_rate_source
+        description: Provider of the applied FX rate.
+      - name: invoice_amount_usd
+        description: invoice_amount x exchange_rate. Unrounded.
+        data_tests:
+          - not_null
+      - name: line_item_count
+        description: Number of line items on the invoice.
+      - name: line_item_amount_total
+        description: Sum of line item amounts (original currency).
+      - name: distinct_service_type_count
+        description: Number of distinct service types on the invoice.
+      - name: is_amount_reconciled
+        description: TRUE when invoice_amount equals line_item_amount_total.
+      - name: payment_count
+        description: Number of payments recorded against the invoice.
+      - name: is_paid
+        description: TRUE if at least one payment exists. The source has no invoice status, so unpaid can't be split into outstanding vs. void.
+      - name: lifecycle_stage_at_invoice
+        description: The account's lifecycle stage when the invoice was created.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['pre_trial', 'trial', 'subscribed', 'churned']
+      - name: is_post_churn_activity
+        description: Data quality flag. TRUE if the invoice was created after the account churned. Included in all metrics.
+
+  - name: fct_payment_transactions
+    description: >
+      Grain: one row per payment transaction. Authoritative source for Gross Payment
+      Volume (SUM amount_usd), dated by transaction_date_mt. Includes all payment
+      methods; payment_channel separates electronic from offline (cash, cheque) volume.
+      The source has no refund or failure status, so no transactions are excluded.
+    columns:
+      - name: transaction_id
+        description: Payment transaction identifier. Primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        description: Account that received the payment.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_accounts')
+                field: account_id
+      - name: invoice_id
+        description: Invoice the payment was made against.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_invoices')
+                field: invoice_id
+      - name: transaction_at_mt
+        description: Payment timestamp, Mountain Time.
+      - name: transaction_date_mt
+        description: Payment date, Mountain Time. Reporting date for GPV and the FX conversion date.
+        data_tests:
+          - not_null
+      - name: payment_method
+        description: Payment method as recorded in the source.
+      - name: payment_channel
+        description: electronic (Credit Card, ACH, Paypal) or offline (Cash, Cheque).
+      - name: payment_amount
+        description: Payment amount in the original currency (major units).
+      - name: currency_code
+        description: Original payment currency (ISO-4217).
+      - name: exchange_rate
+        description: USD per 1 unit of currency_code, applied for transaction_date_mt.
+      - name: fx_rate_effective_date
+        description: Publication date of the applied FX rate.
+      - name: fx_rate_source
+        description: Provider of the applied FX rate.
+      - name: amount_usd
+        description: payment_amount x exchange_rate. Unrounded. GPV = SUM(amount_usd).
+        data_tests:
+          - not_null
+      - name: lifecycle_stage_at_payment
+        description: The account's lifecycle stage when the payment was made.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['pre_trial', 'trial', 'subscribed', 'churned']
+      - name: is_post_churn_activity
+        description: Data quality flag. TRUE if the payment occurred after the account churned. Included in GPV.
+
+  - name: fct_account_lifecycle
+    description: >
+      Grain: one row per account lifecycle event, which is also one effective-dated
+      interval [valid_from_mt, valid_to_mt). Authoritative source for lifecycle flows
+      (new trials, subscriptions, churns) and for an account's state at any point in time.
+    columns:
+      - name: lifecycle_event_id
+        description: Surrogate key = hash(account_id, event_time). Primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_accounts')
+                field: account_id
+      - name: event_sequence
+        description: Chronological order of the event within the account (1 = first).
+      - name: lifecycle_state
+        description: State the account entered at this event.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['trial', 'subscribed', 'churned']
+      - name: previous_lifecycle_state
+        description: State before this event (NULL for the first event).
+      - name: next_lifecycle_state
+        description: State after this interval ends (NULL if current).
+      - name: event_at_mt
+        description: Event timestamp, Mountain Time.
+      - name: event_date_mt
+        description: Event date, Mountain Time. Reporting date for lifecycle flows.
+        data_tests:
+          - not_null
+      - name: valid_from_mt
+        description: Interval start (inclusive), Mountain Time.
+        data_tests:
+          - not_null
+      - name: valid_to_mt
+        description: Interval end (exclusive), Mountain Time. NULL for the current interval.
+      - name: is_current
+        description: TRUE for the account's current (open) interval.
+      - name: is_valid_transition
+        description: FALSE if the transition is not (start)->trial, trial->subscribed or subscribed->churned.
+      - name: days_in_state
+        description: Days spent in the state (to the reporting end date if current).
+    data_tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "(valid_to_mt IS NULL) = is_current"
+
+  - name: fct_account_daily_status
+    description: >
+      Grain: one row per account per calendar date (MT), from sign-up date to the
+      reporting end date. Each account's lifecycle stage at end of day (Mountain Time),
+      derived from fct_account_lifecycle intervals. Exactly one stage per account per
+      day, so stage counts never double-count. Authoritative source for point-in-time
+      (historical) account counts.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: ['account_id', 'status_date']
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "is_pre_trial + is_trial + is_subscribed + is_churned = 1"
+    columns:
+      - name: account_daily_status_id
+        description: Surrogate key = hash(account_id, status_date). Primary key.
+        data_tests:
+          - unique
+          - not_null
+      - name: status_date
+        description: Calendar date (Mountain Time) the status applies to, as of end of day.
+        data_tests:
+          - not_null
+      - name: account_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_accounts')
+                field: account_id
+      - name: lifecycle_stage
+        description: End-of-day lifecycle stage. pre_trial = signed up but no trial event yet.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['pre_trial', 'trial', 'subscribed', 'churned']
+      - name: lifecycle_event_id
+        description: Lifecycle event (interval) in effect at end of day. NULL while pre_trial.
+      - name: is_pre_trial
+        description: 1 if pre_trial at end of day, else 0.
+      - name: is_trial
+        description: 1 if in trial at end of day, else 0.
+      - name: is_subscribed
+        description: 1 if subscribed at end of day, else 0.
+      - name: is_churned
+        description: 1 if churned at end of day, else 0.
