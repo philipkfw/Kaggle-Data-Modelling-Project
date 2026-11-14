@@ -18,7 +18,7 @@ Every metric has exactly one authoritative model. The marts pre-aggregate these 
 | **Invoice Dollar Volume** | `SUM(invoice_amount_usd)` | `fct_invoices` | Invoice created date (MT) |
 
 **Notes:**
-- **GPV includes every payment method,** as the brief defines it. In payments businesses, GPV often means only volume processed through the platform. That would exclude manually recorded cash and cheques, which are **38.4%** of GPV here. The electronic/offline split lets either definition be reported without changing the model.
+- **GPV includes every payment method,** per the project's metric definition. In payments businesses, GPV often means only volume processed through the platform. That would exclude manually recorded cash and cheques, which are **38.4%** of GPV here. The electronic/offline split lets either definition be reported without changing the model.
 - **No transactions are excluded.** The source has no status, refund, failure or reversal field, and every amount is positive.
 - **Invoice Volume counts every invoice,** paid or not: 174 of 609 have no payment. `fct_invoices.is_paid` allows filtering, but the source has no invoice status, so unpaid can't be split into outstanding vs. void.
 - **Invoice count and invoice dollar volume are separate metrics.**

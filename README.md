@@ -1,6 +1,6 @@
-# Jobber Analytics Warehouse – Snowflake + dbt Core
+# Kaggle Data Modelling Project – Snowflake + dbt Core
 
-A Bronze → Silver → Gold warehouse built on six Jobber CSV extracts. It delivers three BI-ready business metrics:
+A Bronze → Silver → Gold warehouse built on six CSV extracts from a Kaggle dataset of a field-service SaaS business. It delivers three BI-ready business metrics:
 
 | Metric | Definition | Model |
 |---|---|---|
