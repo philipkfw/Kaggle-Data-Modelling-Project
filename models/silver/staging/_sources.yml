@@ -11,7 +11,7 @@ sources:
     tables:
       - name: accounts
         identifier: ACCOUNTS
-        description: One row per Jobber account.
+        description: One row per customer account.
         columns:
           - name: id
             description: Account identifier (UUID).

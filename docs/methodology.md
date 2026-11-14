@@ -22,7 +22,7 @@ Invoices and payments are in four currencies: USD, CAD, GBP and AUD. Each accoun
 - **Reproducible:** the rates are stored as a version-controlled seed (`seeds/fx_rates_fred_h10.csv`, 1,314 rows, 2023-12-01 → 2025-08-29). Anyone can rebuild the project without a Snowflake Marketplace subscription.
 
 **Alternatives considered:**
-- **Snowflake Marketplace (Snowflake Public Data FX).** Free and Snowflake-native, but it wasn't installed in this account, and every reviewer would need to subscribe. If adopted, only `stg_fx_rates` would change.
+- **Snowflake Marketplace (Snowflake Public Data FX).** Free and Snowflake-native, but it wasn't installed in this account, and anyone rebuilding the project would need to subscribe. If adopted, only `stg_fx_rates` would change.
 - **ECB reference rates.** EUR-based, so USD pairs would need triangulating through EUR.
 
 **Published values are stored exactly as published.** US holidays with no published value are left out; no rate is ever imputed or fabricated.
@@ -44,7 +44,7 @@ Invoices and payments are in four currencies: USD, CAD, GBP and AUD. Each accoun
 - **Staleness:** `days_since_published` ≤ 4 (`max_fx_staleness_days`).
 
 ### Limitation
-H.10 rates are New York noon buying rates, an indicative mid-market rate. They aren't the rate a payment processor actually charged. If Jobber has settlement rates, swap the seed for them: `stg_fx_rates` keeps the same output contract, so nothing downstream changes.
+H.10 rates are New York noon buying rates, an indicative mid-market rate. They aren't the rate a payment processor actually charged. If processor settlement rates are available, swap the seed for them: `stg_fx_rates` keeps the same output contract, so nothing downstream changes.
 
 ---
 
@@ -60,7 +60,7 @@ The source timestamps are `TIMESTAMP_NTZ` and carry no offset or zone. The data 
 **Why it matters:** converting to Mountain Time moves about **20% of records to a different reporting day** (130 of 609 invoices, 115 of 435 payments) and **15 records to a different month**.
 
 ### Target: `America/Denver`
-Mountain Time is Jobber's head-office reporting timezone (Edmonton uses the same rules). Reporting in one zone gives every country the same definition of a day and a month.
+Mountain Time is the business's reporting timezone (a project requirement). Reporting in one zone gives every country the same definition of a day and a month.
 
 ### Method
 - **One macro:** `to_mountain_time(col)` = `CONVERT_TIMEZONE(var('source_timezone'), var('reporting_timezone'), col)`.
@@ -79,7 +79,7 @@ If the source turns out to be each account's local time, map each city to its IA
 ## 3. Historical lifecycle tracking
 
 ### Approach: effective-dated intervals + a daily snapshot fact
-| Option (from the brief) | Decision |
+| Option considered | Decision |
 |---|---|
 | 2 – Effective-dated intervals (`valid_from`, `valid_to`, `is_current`) | **Core model:** `fct_account_lifecycle`. A compact, exact history that's never overwritten. |
 | 1 – Daily snapshot via date spine | **Derived from the intervals:** `fct_account_daily_status`. One row per account per day makes historical counts a simple filter in Tableau. ~79k rows. |

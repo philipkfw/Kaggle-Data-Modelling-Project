@@ -264,8 +264,8 @@ The conversion to Mountain Time happens in staging, because it is standardisatio
 
 | Option | Assessment |
 |---|---|
-| **Fed H.10 via FRED (recommended)** | Series `DEXCAUS` (CAD per USD), `DEXUSUK` (USD per GBP) and `DEXUSAL` (USD per AUD). They are **direct USD pairs**, so no cross-rate triangulation is needed. They're published by the Federal Reserve Board and are public domain. Verified: the download works, and the requested window (2023-12-01 → 2025-08-29) is fully covered apart from 18 US-holiday gaps. As a seed (about 1,300 rows) the data is version-controlled, reproducible by any reviewer, and doesn't depend on a trial account that expires in 30 days. |
-| Snowflake Marketplace (Snowflake Public Data / Cybersyn `FX_RATES_TIMESERIES`) | Free listing, sourced from ECB, BIS and FRED. It isn't installed in this account: an `ACCOUNTADMIN` would need to accept the listing in Snowsight. Reviewers would need the same listing, and the ECB has stopped some pairs since late 2023. A strong alternative if you prefer a live, Snowflake-native feed. The staging model would change, but nothing downstream would. |
+| **Fed H.10 via FRED (recommended)** | Series `DEXCAUS` (CAD per USD), `DEXUSUK` (USD per GBP) and `DEXUSAL` (USD per AUD). They are **direct USD pairs**, so no cross-rate triangulation is needed. They're published by the Federal Reserve Board and are public domain. Verified: the download works, and the requested window (2023-12-01 → 2025-08-29) is fully covered apart from 18 US-holiday gaps. As a seed (about 1,300 rows) the data is version-controlled, reproducible by anyone, and doesn't depend on a trial account that expires in 30 days. |
+| Snowflake Marketplace (Snowflake Public Data / Cybersyn `FX_RATES_TIMESERIES`) | Free listing, sourced from ECB, BIS and FRED. It isn't installed in this account: an `ACCOUNTADMIN` would need to accept the listing in Snowsight. Anyone rebuilding the project would need the same listing, and the ECB has stopped some pairs since late 2023. A strong alternative if you prefer a live, Snowflake-native feed. The staging model would change, but nothing downstream would. |
 | ECB reference rates | EUR-based, so USD pairs need triangulating through EUR. That adds derivation and an extra source of error. |
 
 **Rules:**
@@ -391,7 +391,7 @@ All metrics can be segmented by country, region, city and sign-up platform, usin
 |---|---|---|---|
 | **A1** | Source timezone of NTZ timestamps | **UTC** (configurable variable) | Account-local time via a city → IANA zone mapping |
 | **A2** | FX source | **Fed H.10 via FRED, as a version-controlled seed** | Snowflake Marketplace free FX listing (you'd need to accept it as ACCOUNTADMIN) |
-| **A3** | Cash and cheque payments in GPV | **Include all methods in GPV** (per the brief's definition), plus `gpv_electronic_usd` / `gpv_offline_usd` breakdowns. Note: in a payments business, GPV usually means volume processed through the platform, which would exclude manually recorded cash and cheques (≈ 39% of GPV here). | Exclude cash and cheques from headline GPV |
+| **A3** | Cash and cheque payments in GPV | **Include all methods in GPV** (per the project's metric definition), plus `gpv_electronic_usd` / `gpv_offline_usd` breakdowns. Note: in a payments business, GPV usually means volume processed through the platform, which would exclude manually recorded cash and cheques (≈ 39% of GPV here). | Exclude cash and cheques from headline GPV |
 | **A4** | Sign-up → trial gap | **Derived `pre_trial` stage**, excluded from the three required counts | Start lifecycle history at the trial event (accounts invisible until trial) |
 | **A5** | Trial-only accounts with no end event | **Report as recorded** + `is_stale_trial` flag (> 90 days) | Infer a `trial_expired` stage after 90 days (an invented state) |
 | **A6** | Post-churn invoices and payments | **Include in metrics** + `is_post_churn_activity` flag + warn test | Exclude from metrics |

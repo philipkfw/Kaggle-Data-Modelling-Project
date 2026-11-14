@@ -1,0 +1,7 @@
+{
+    // Use the project's virtual environment (dbt-core 1.12 + dbt-snowflake)
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+
+    // Power User for dbt: rows returned by "Execute dbt SQL" previews
+    "dbt.queryLimit": 500
+}

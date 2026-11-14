@@ -1,6 +1,6 @@
 # Architecture
 
-This warehouse turns six raw Jobber CSV extracts into BI-ready models for **Gross Payment Volume**, **Invoice Volume** and **account lifecycle counts**. Every metric can be segmented by country, region, city and sign-up platform, and trended over time.
+This warehouse turns six raw CSV extracts (a Kaggle dataset from a field-service SaaS business) into BI-ready models for **Gross Payment Volume**, **Invoice Volume** and **account lifecycle counts**. Every metric can be segmented by country, region, city and sign-up platform, and trended over time.
 
 - **Stack:** Snowflake + dbt Core 1.12, with `dbt_utils` as the only package.
 - **Size:** 22 models, 2 seeds, 176 tests.
