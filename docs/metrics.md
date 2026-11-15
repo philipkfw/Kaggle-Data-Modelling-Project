@@ -71,7 +71,7 @@ Ratios can't be summed across segments or periods, so they're calculated from ad
 - **Right:** "subscribed accounts in Q3 2024" = subscribed accounts on 2024-09-30, i.e. 53.
 - **Wrong:** summing the daily values across July–September gives a meaningless number.
 
-In Tableau, filter to the period's last date or use the monthly mart's `*_eom` columns (see [bi_connection.md](bi_connection.md)).
+In a BI tool, filter to the period's last date or use the monthly mart's `*_eom` columns (see [bi_connection.md](bi_connection.md)).
 
 ## Reconciliation guarantees (tested on every build)
 - **GPV:** Bronze source = fact = daily mart = monthly mart, per currency and in USD. Electronic + offline = total.

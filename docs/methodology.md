@@ -82,7 +82,7 @@ If the source turns out to be each account's local time, map each city to its IA
 | Option considered | Decision |
 |---|---|
 | 2 – Effective-dated intervals (`valid_from`, `valid_to`, `is_current`) | **Core model:** `fct_account_lifecycle`. A compact, exact history that's never overwritten. |
-| 1 – Daily snapshot via date spine | **Derived from the intervals:** `fct_account_daily_status`. One row per account per day makes historical counts a simple filter in Tableau. ~79k rows. |
+| 1 – Daily snapshot via date spine | **Derived from the intervals:** `fct_account_daily_status`. One row per account per day makes historical counts a simple filter in any BI tool. ~79k rows. |
 | 3 – dbt snapshots | **Not used.** Snapshots record changes to a *mutable* table across repeated runs. Our source is already an append-only event history, and the CSVs are static, so a snapshot would capture nothing. |
 
 ### How state is derived

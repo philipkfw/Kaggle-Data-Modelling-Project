@@ -184,7 +184,7 @@ models/
     ├── dimensions/
     │   ├── _dimensions.yml
     │   ├── dim_accounts.sql
-    │   ├── dim_date.sql                 # NEW – calendar spine for Tableau and snapshots
+    │   ├── dim_date.sql                 # NEW – calendar spine for BI tools and snapshots
     │   └── dim_fx_rates.sql
     ├── facts/
     │   ├── _facts.yml
@@ -213,7 +213,7 @@ packages.yml                             # dbt_utils only
 | Change | Reason |
 |---|---|
 | **+ `int_fx_rates_daily`** | Conversion happens in silver, but `dim_fx_rates` lives in gold. Silver models must not depend on gold. This model forward-fills published rates onto every calendar day once, using an `ASOF JOIN`. Invoices and payments then use a simple **equi-join on (currency, date)**. The as-of logic exists in one place and can be tested for completeness. `dim_fx_rates` exposes it to BI users. |
-| **+ `dim_date`** | Needed as the date spine for point-in-time lifecycle counts, and as a standard Tableau calendar. |
+| **+ `dim_date`** | Needed as the date spine for point-in-time lifecycle counts, and as a standard calendar dimension for BI tools. |
 | **+ `fct_account_daily_status`** | The physical historical snapshot (§2.6). It makes "state as of date D" a filter rather than a complex calculation, and it gives the lifecycle mart something easy to reconcile against. |
 | **+ `macros/to_mountain_time`** | Every timestamp converts through one macro, with the source zone held in a project variable. |
 | **+ `packages.yml` (dbt_utils)** | Provides `date_spine` and standard tests (`unique_combination_of_columns`, `expression_is_true`, `accepted_range`). It's maintained by dbt Labs; this is the only package. |
@@ -299,7 +299,7 @@ The conversion to Mountain Time happens in staging, because it is standardisatio
 **Recommendation: effective-dated intervals as the core model (Option 2), with a daily snapshot fact derived from them (Option 1).**
 
 - **Intervals (`fct_account_lifecycle`).** Each event opens an interval `[valid_from, valid_to)` that closes at the next event; the current one has `valid_to = NULL` and `is_current = TRUE`. This is the compact, exact record of history, and it is never overwritten by the current status.
-- **Daily snapshot (`fct_account_daily_status`).** The intervals are joined to `dim_date` to produce each account's **end-of-day (MT)** stage for every date. Tableau can then answer "how many accounts were subscribed on 2024-09-30?" with a filter, rather than an interval calculation that a BI user could easily get wrong. At about 80k rows, the cost is negligible.
+- **Daily snapshot (`fct_account_daily_status`).** The intervals are joined to `dim_date` to produce each account's **end-of-day (MT)** stage for every date. A BI tool can then answer "how many accounts were subscribed on 2024-09-30?" with a filter, rather than an interval calculation that a BI user could easily get wrong. At about 80k rows, the cost is negligible.
 - **Why not dbt snapshots:** explained in §2.2.
 
 **Definitions:**
@@ -337,7 +337,7 @@ All metrics can be segmented by country, region, city and sign-up platform, usin
 | Mart | Grain | Measures | Notes |
 |---|---|---|---|
 | `mart_financial_performance` | 1 row / date (MT) × country × region × city × sign-up platform | `gpv_usd`, `payment_count`, `invoice_count`, `invoice_amount_usd` (+ `gpv_electronic_usd`, `gpv_offline_usd` per decision A3) | Payments and invoices are each aggregated to this grain **separately**, then FULL OUTER JOINed on the grain keys. Sparse: only rows with activity. All measures can be summed across any dimension. |
-| `mart_account_lifecycle` | 1 row / date (MT) × country × region × city × sign-up platform | `pre_trial_accounts`, `trial_accounts`, `subscribed_accounts`, `churned_accounts`, `total_accounts` (stocks); `new_trials`, `new_subscriptions`, `new_churns` (flows) | Dense: every date from the earliest sign-up onward. **Stocks are semi-additive:** they can be summed across geography or platform, but never across dates. Tableau should take the last date of the period. Documented in column descriptions. |
+| `mart_account_lifecycle` | 1 row / date (MT) × country × region × city × sign-up platform | `pre_trial_accounts`, `trial_accounts`, `subscribed_accounts`, `churned_accounts`, `total_accounts` (stocks); `new_trials`, `new_subscriptions`, `new_churns` (flows) | Dense: every date from the earliest sign-up onward. **Stocks are semi-additive:** they can be summed across geography or platform, but never across dates. BI tools should take the last date of the period. Documented in column descriptions. |
 | `mart_account_performance` | 1 row / **month** × country × region × city × sign-up platform | Month-end stage counts, monthly flows (sign-ups, trials, subscriptions, churns), GPV (total, electronic, offline), payment count, invoice count and amount | An executive-level combined view. Built by rolling **each daily mart up to month first**, then joining on identical keys. No fact-to-fact joins. |
 
 **Fanout and double-counting risks, and how each is prevented:**
