@@ -1,6 +1,6 @@
 # Kaggle Data Modelling Project – Snowflake + dbt Core
 
-A Bronze → Silver → Gold warehouse built on six CSV extracts from a Kaggle dataset of a field-service SaaS business. It delivers three BI-ready business metrics:
+A Bronze → Silver → Gold warehouse built on six CSV extracts from a [Kaggle dataset](https://www.kaggle.com/datasets/c17764cc9f9b0eda9473a8c7e12f2193ac997cd320dc6cca0e39000400581042/data) of a field-service SaaS business. It delivers three BI-ready business metrics:
 
 | Metric | Definition | Model |
 |---|---|---|
@@ -15,6 +15,21 @@ A Bronze → Silver → Gold warehouse built on six CSV extracts from a Kaggle d
 
 ---
 
+## Data source
+
+The six CSVs in [`static_csv_files/`](static_csv_files/) come from a public Kaggle dataset: **[view the dataset on Kaggle](https://www.kaggle.com/datasets/c17764cc9f9b0eda9473a8c7e12f2193ac997cd320dc6cca0e39000400581042/data)**.
+
+| File | Rows | Description |
+|---|---|---|
+| `Accounts.csv` | 200 | One row per account: sign-up time and platform |
+| `Accounts_Geo.csv` | 200 | Account country, region and city |
+| `Account_Lifecycle_Events.csv` | 427 | Lifecycle state changes (trial, subscribed, churned) |
+| `Invoices.csv` | 609 | Invoices sent by accounts to their clients |
+| `Invoice_Line_Items.csv` | 1,848 | Line items on each invoice |
+| `Payment_Transactions.csv` | 435 | Payments made against invoices |
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -24,7 +39,7 @@ flowchart LR
     B --> C[SILVER · intermediate<br/>FX as-of rates, USD conversion,<br/>lifecycle intervals, enrichment]
     C --> D[GOLD · dims & facts<br/>dim_accounts, dim_date, dim_fx_rates<br/>fct_invoices, fct_payment_transactions,<br/>fct_account_lifecycle, fct_account_daily_status]
     D --> E[GOLD · reporting marts<br/>mart_financial_performance<br/>mart_account_lifecycle<br/>mart_account_performance]
-    E --> T{{Tableau / BI}}
+    E --> T{{BI tool}}
 ```
 
 | Layer | Schema | Materialisation | Purpose |
@@ -42,7 +57,7 @@ flowchart LR
 | [docs/metrics.md](docs/metrics.md) | Metric definitions, rate calculations, mart grains, additivity rules |
 | [docs/data_quality.md](docs/data_quality.md) | Testing approach, data quality findings, business assumptions, limitations |
 | [docs/data_dictionary.md](docs/data_dictionary.md) | Every column of every model, with types (generated from dbt) |
-| [docs/bi_connection.md](docs/bi_connection.md) | Connecting Tableau, which table to use, calculations |
+| [docs/bi_connection.md](docs/bi_connection.md) | Connecting a BI tool, which table to use, example calculations in SQL |
 | [docs/phase_1_2_discovery_and_design.md](docs/phase_1_2_discovery_and_design.md) | Original discovery findings and the approved design proposal |
 
 Interactive DAG and model docs: `dbt docs generate && dbt docs serve`.
@@ -71,7 +86,7 @@ A successful build reports `PASS=198 WARN=2 ERROR=0`. The two warnings are inten
 
 ```
 .
-├── static_csv_files/                  # Source CSVs
+├── static_csv_files/                  # Source CSVs (from Kaggle; see Data source)
 ├── snowflake/01_setup_bronze.sql      # Warehouse, database, schemas, stage + Bronze load
 ├── dbt_project.yml                    # Schema routing, materialisations, tags, project variables
 ├── packages.yml / package-lock.yml    # dbt_utils

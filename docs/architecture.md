@@ -203,7 +203,7 @@ Each significant model below is described by: **why** it exists · **grain** · 
 
 **`dim_date`**
 
-- **Why:** the date spine for point-in-time snapshots, and a standard Tableau calendar.
+- **Why:** the date spine for point-in-time snapshots, and a standard calendar dimension for BI tools.
 - **Grain:** one row per calendar date, 2024-01-01 → 2025-08-12 (590).
 - **Logic:** ISO week start, month, quarter and year. `month_reporting_end_date` marks the last date with data in a partial month.
 - **Supports:** `fct_account_daily_status`, `mart_account_performance`.
@@ -234,7 +234,7 @@ Each significant model below is described by: **why** it exists · **grain** · 
 
 **`fct_account_daily_status`** – the source of point-in-time lifecycle **counts**
 
-- **Why:** it makes "how many accounts were subscribed on date D?" a simple filter. The alternative is an interval calculation in Tableau, which is easy to get wrong.
+- **Why:** it makes "how many accounts were subscribed on date D?" a simple filter. The alternative is an interval calculation in the BI tool, which is easy to get wrong.
 - **Grain:** one row per account per calendar date, from sign-up to the reporting end date (79,202).
 - **Upstream:** `dim_date`, `int_accounts_enriched`, `int_account_lifecycle`.
 - **Logic:** an `ASOF JOIN` finds the latest event before the next day starts, i.e. the **end-of-day (MT)** stage. Accounts with no event yet are `pre_trial`. The `is_*` flags are 0/1.
@@ -256,7 +256,7 @@ All three marts share the segment keys: country, country_code, region, city and 
   3. `LEFT JOIN` each aggregate onto the keys.
 
   This keeps every row from every source, and no fact can inflate another.
-- **Measure definitions** and Tableau usage are in [metrics.md](metrics.md).
+- **Measure definitions** and BI usage are in [metrics.md](metrics.md).
 
 ---
 
